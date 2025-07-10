@@ -1,115 +1,250 @@
 <!DOCTYPE html>
 <html lang="en">
-	<head>
-		<title>three.js webgl - effects - ascii</title>
-		<meta charset="utf-8">
-		<meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0">
-		<link type="text/css" rel="stylesheet" href="main.css">
-	</head>
+<head>
+  <meta charset="UTF-8">
+  <title>ASCII GLB Viewer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Code+Pro&display=swap">
+  <style>
+    :root {
+      --bg-color: black;
+      --fg-color: white;
+      --accent-color: #00ffcc;
+    }
 
-	<body>
-		<div id="info"><a href="https://threejs.org" target="_blank" rel="noopener">three.js</a> - effects - ascii</div>
+    body.light {
+      --bg-color: white;
+      --fg-color: black;
+      --accent-color: #006666;
+    }
 
-		<script type="importmap">
-			{
-				"imports": {
-					"three": "../build/three.module.js",
-					"three/addons/": "./jsm/"
-				}
-			}
-		</script>
+    body {
+      margin: 0;
+      background: var(--bg-color);
+      color: var(--fg-color);
+      font-family: 'Source Code Pro', monospace;
+      overflow: hidden;
+    }
 
-		<script type="module">
+    #ascii {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100vw; height: 100vh;
+      line-height: 100%;
+    }
 
-			import * as THREE from 'three';
+    #controls {
+      position: fixed;
+      top: 10px;
+      right: 10px;
+      background: var(--bg-color);
+      color: var(--fg-color);
+      border: 1px solid var(--fg-color);
+      padding: 10px;
+      z-index: 100;
+      font-size: 14px;
+      max-width: 300px;
+    }
 
-			import { AsciiEffect } from 'three/addons/effects/AsciiEffect.js';
-			import { TrackballControls } from 'three/addons/controls/TrackballControls.js';
+    #controls input[type="range"] {
+      width: 100%;
+    }
 
-			let camera, controls, scene, renderer, effect;
+    #dropzone {
+      position: fixed;
+      inset: 0;
+      z-index: 99;
+      border: 2px dashed var(--accent-color);
+      display: none;
+      place-items: center;
+      font-size: 18px;
+      pointer-events: none;
+    }
 
-			let sphere, plane;
+    #info {
+      position: fixed;
+      bottom: 10px;
+      left: 10px;
+      z-index: 100;
+      font-size: 13px;
+    }
 
-			const start = Date.now();
+    button {
+      background: none;
+      color: var(--fg-color);
+      border: 1px solid var(--fg-color);
+      padding: 4px 8px;
+      margin-top: 6px;
+      cursor: pointer;
+    }
 
-			init();
+    .hidden {
+      display: none;
+    }
+  </style>
+</head>
+<body>
 
-			function init() {
+<div id="ascii"></div>
 
-				camera = new THREE.PerspectiveCamera( 70, window.innerWidth / window.innerHeight, 1, 1000 );
-				camera.position.y = 150;
-				camera.position.z = 500;
+<div id="dropzone">Drop a .glb file here (max 10MB)</div>
 
-				scene = new THREE.Scene();
-				scene.background = new THREE.Color( 0, 0, 0 );
+<div id="controls">
+  <strong>ASCII GLB Viewer</strong>
+  <div>Model: <span id="modelName">None</span></div>
+  <div>Time: <span id="clock"></span></div>
+  <hr>
+  <label>Density</label>
+  <input type="range" min="1" max="16" value="8" id="scaleSlider">
+  <br>
+  <button id="resetBtn">Reset Camera</button>
+  <button id="clearBtn">Clear</button>
+  <button id="themeBtn">Toggle Theme</button>
+</div>
 
-				const pointLight1 = new THREE.PointLight( 0xffffff, 3, 0, 0 );
-				pointLight1.position.set( 500, 500, 500 );
-				scene.add( pointLight1 );
+<script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.1/build/three.module.js",
+      "three/examples/": "https://cdn.jsdelivr.net/npm/three@0.160.1/examples/jsm/"
+    }
+  }
+</script>
 
-				const pointLight2 = new THREE.PointLight( 0xffffff, 1, 0, 0 );
-				pointLight2.position.set( - 500, - 500, - 500 );
-				scene.add( pointLight2 );
+<script type="module">
+  import * as THREE from 'three';
+  import { GLTFLoader } from 'three/examples/loaders/GLTFLoader.js';
+  import { AsciiEffect } from 'three/examples/effects/AsciiEffect.js';
+  import { TrackballControls } from 'three/examples/controls/TrackballControls.js';
 
-				sphere = new THREE.Mesh( new THREE.SphereGeometry( 200, 20, 10 ), new THREE.MeshPhongMaterial( { flatShading: true } ) );
-				scene.add( sphere );
+  let camera, scene, renderer, effect, controls;
+  let mixer, model;
+  const clock = new THREE.Clock();
 
-				// Plane
+  init();
+  animate();
 
-				plane = new THREE.Mesh( new THREE.PlaneGeometry( 400, 400 ), new THREE.MeshBasicMaterial( { color: 0xe0e0e0 } ) );
-				plane.position.y = - 200;
-				plane.rotation.x = - Math.PI / 2;
-				scene.add( plane );
+  function init() {
+    // Camera
+    camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 2000);
+    camera.position.set(0, 2, 5);
 
-				renderer = new THREE.WebGLRenderer();
-				renderer.setSize( window.innerWidth, window.innerHeight );
-				renderer.setAnimationLoop( animate );
+    // Scene
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x000000);
 
-				effect = new AsciiEffect( renderer, ' .:-+*=%@#', { invert: true } );
-				effect.setSize( window.innerWidth, window.innerHeight );
-				effect.domElement.style.color = 'white';
-				effect.domElement.style.backgroundColor = 'black';
+    // Lights
+    const light1 = new THREE.DirectionalLight(0xffffff, 1);
+    light1.position.set(1, 1, 1);
+    scene.add(light1);
 
-				// Special case: append effect.domElement, instead of renderer.domElement.
-				// AsciiEffect creates a custom domElement (a div container) where the ASCII elements are placed.
+    const light2 = new THREE.DirectionalLight(0xffffff, 0.5);
+    light2.position.set(-1, -1, -1);
+    scene.add(light2);
 
-				document.body.appendChild( effect.domElement );
+    // Renderer + ASCII
+    renderer = new THREE.WebGLRenderer();
+    effect = new AsciiEffect(renderer, ' .:-=+*#%@', { invert: true });
+    effect.setSize(window.innerWidth, window.innerHeight);
+    effect.domElement.style.color = 'white';
+    effect.domElement.style.backgroundColor = 'black';
+    document.getElementById('ascii').appendChild(effect.domElement);
 
-				controls = new TrackballControls( camera, effect.domElement );
+    // Controls
+    controls = new TrackballControls(camera, effect.domElement);
 
-				//
+    // Event Listeners
+    window.addEventListener('resize', onWindowResize);
+    document.getElementById('themeBtn').onclick = toggleTheme;
+    document.getElementById('resetBtn').onclick = () => camera.position.set(0, 2, 5);
+    document.getElementById('clearBtn').onclick = () => {
+      if (model) scene.remove(model);
+      model = null;
+      document.getElementById('modelName').textContent = 'None';
+    };
+    document.getElementById('scaleSlider').oninput = (e) => {
+      const scale = parseInt(e.target.value);
+      effect.characterSet = ' .:-=+*#%@'.repeat(scale);
+    };
 
-				window.addEventListener( 'resize', onWindowResize );
+    // Clock
+    setInterval(() => {
+      const now = new Date();
+      document.getElementById('clock').textContent = now.toLocaleTimeString();
+    }, 1000);
 
-			}
+    // Drag-and-drop
+    const dropzone = document.getElementById('dropzone');
+    ['dragenter', 'dragover'].forEach(e => window.addEventListener(e, evt => {
+      evt.preventDefault(); dropzone.style.display = 'grid';
+    }));
 
-			function onWindowResize() {
+    ['dragleave', 'drop'].forEach(e => window.addEventListener(e, evt => {
+      evt.preventDefault(); dropzone.style.display = 'none';
+    }));
 
-				camera.aspect = window.innerWidth / window.innerHeight;
-				camera.updateProjectionMatrix();
+    window.addEventListener('drop', (e) => {
+      if (e.dataTransfer.files.length === 0) return;
+      const file = e.dataTransfer.files[0];
+      if (!file.name.endsWith('.glb') || file.size > 10 * 1024 * 1024) {
+        alert('Only .glb files under 10MB allowed.');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = function (event) {
+        loadGLB(event.target.result, file.name);
+      };
+      reader.readAsArrayBuffer(file);
+    });
+  }
 
-				renderer.setSize( window.innerWidth, window.innerHeight );
-				effect.setSize( window.innerWidth, window.innerHeight );
+  function onWindowResize() {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    effect.setSize(window.innerWidth, window.innerHeight);
+  }
 
-			}
+  function animate() {
+    requestAnimationFrame(animate);
+    const delta = clock.getDelta();
+    controls.update();
+    if (mixer) mixer.update(delta);
+    effect.render(scene, camera);
+  }
 
-			//
+  function toggleTheme() {
+    document.body.classList.toggle('light');
+    const isLight = document.body.classList.contains('light');
+    effect.domElement.style.color = isLight ? 'black' : 'white';
+    effect.domElement.style.backgroundColor = isLight ? 'white' : 'black';
+  }
 
-			function animate() {
+  function loadGLB(buffer, name) {
+    const loader = new GLTFLoader();
+    loader.parse(buffer, '', (gltf) => {
+      if (model) scene.remove(model);
+      model = gltf.scene;
+      document.getElementById('modelName').textContent = name;
 
-				const timer = Date.now() - start;
+      const box = new THREE.Box3().setFromObject(model);
+      const size = new THREE.Vector3();
+      box.getSize(size);
+      const center = new THREE.Vector3();
+      box.getCenter(center);
+      const scale = 2 / Math.max(size.x, size.y, size.z);
+      model.scale.setScalar(scale);
+      model.position.sub(center.multiplyScalar(scale));
 
-				sphere.position.y = Math.abs( Math.sin( timer * 0.002 ) ) * 150;
-				sphere.rotation.x = timer * 0.0003;
-				sphere.rotation.z = timer * 0.0002;
+      scene.add(model);
 
-				controls.update();
+      mixer = gltf.animations.length ? new THREE.AnimationMixer(model) : null;
+      if (mixer) {
+        gltf.animations.forEach(clip => mixer.clipAction(clip).play());
+      }
+    });
+  }
+</script>
 
-				effect.render( scene, camera );
-
-			}
-
-		</script>
-
-	</body>
+</body>
 </html>
